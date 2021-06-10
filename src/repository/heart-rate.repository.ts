@@ -31,7 +31,7 @@ export class HeartRateRepository {
         }
     }
 
-    async getCreateHeartRateByUserID(userID: string) {
+    async getCreateHeartRateByUserID(userID: string): Promise<HeartRate[]> {
         try {
             const heartRate = await this.heartRateModel.find({ userID }, 'dataCategory userID timeYear timeMinute checkLocation statusID heartRateNum accuracy').exec();
             return heartRate;

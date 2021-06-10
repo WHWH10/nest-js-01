@@ -6,6 +6,9 @@ import { ConfigModule } from './config/config.module';
 import { ConfigService } from './config/config.service';
 import { UploadModule } from './upload/upload.module';
 import { NstorageModule } from './nstorage/nstorage.module';
+import { ApiModule } from './api/api.module';
+import { RouterModule } from 'nest-router';
+import { routes } from './route/custom-routes';
 
 @Module({
   imports: [ConfigModule, UploadModule, NstorageModule,
@@ -13,6 +16,7 @@ import { NstorageModule } from './nstorage/nstorage.module';
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => configService.getMongoConfig(),
     }),
+    RouterModule.forRoutes(routes), ApiModule
   ],
   controllers: [AppController],
   providers: [AppService],
