@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import _ from 'lodash';
 import { ConfigService } from 'src/config/config.service';
-import { ResponseMessage } from 'util/response.util';
+import { ResponseMessage, Response } from 'util/response.util';
+import * as XLSX from 'xlsx';
 
 const config = new ConfigService();
 
@@ -87,8 +88,8 @@ export class NstorageService {
         switch (fileName) {
             case findKey('text/plain'):
                 return await this.readTextFile(params);
-            case findKey('text/csv'):
-            // return await this.readCsvFile(params);
+            case findKey('application/'):
+                return await this.readApplicationFileType(params);
             case findKey('image'):
             // return await this.readImageFile(params);
             default:
@@ -104,6 +105,7 @@ export class NstorageService {
                     reject(new ResponseMessage().error(400, err).build());
                 } else {
                     const body: string = Buffer.from(data.Body).toString('utf8');
+                    // resolve(new ResponseMessage().success().body(body).build());
                     resolve(this.uploadConvertJson(body));
                 }
             });
@@ -141,6 +143,34 @@ export class NstorageService {
         return _.tail(content).map((row: string) => {
             return _.zipObject(header, row.replace(/\s/g, "").split(","));
         });
+    }
+
+    async readApplicationFileType(params: AWS.S3.PutObjectRequest): Promise<Response> {
+        if (params.Key.includes('spreadsheetml.sheet')) {
+            const buffer = await this.getXLSFileFromBufferPromise(params);
+            const workbook = XLSX.read(buffer, { type: 'buffer' });
+            const wsname = workbook.SheetNames[0];
+            const ws = workbook.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws);
+            return new ResponseMessage().success().body(data).build();
+        }
+    }
+
+    async getXLSFileFromBuffer(params, s3buffer): Promise<void> {
+        const buffers = [];
+        const stream = (await config.getS3Params()).getObject(params).createReadStream();
+        stream.on('data', data => buffers.push(data));
+        stream.on('end', () => s3buffer(null, Buffer.concat(buffers)));
+        stream.on('error', error => s3buffer(new ResponseMessage().error(400, error).build()));
+    }
+
+    async getXLSFileFromBufferPromise(params): Promise<any> {
+        return new Promise((resolve, reject) => {
+            this.getXLSFileFromBuffer(params, (error, s3buffer) => {
+                if (error) return reject(error);
+                return resolve(s3buffer);
+            })
+        })
     }
 
 }
