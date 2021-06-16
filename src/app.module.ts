@@ -9,6 +9,7 @@ import { NstorageModule } from './nstorage/nstorage.module';
 import { ApiModule } from './api/api.module';
 import { RouterModule } from 'nest-router';
 import { routes } from './route/custom-routes';
+import { MatlabModule } from './matlab/matlab.module';
 
 @Module({
   imports: [ConfigModule, UploadModule, NstorageModule,
@@ -16,7 +17,7 @@ import { routes } from './route/custom-routes';
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => configService.getMongoConfig(),
     }),
-    RouterModule.forRoutes(routes), ApiModule
+    RouterModule.forRoutes(routes), ApiModule, MatlabModule
   ],
   controllers: [AppController],
   providers: [AppService],

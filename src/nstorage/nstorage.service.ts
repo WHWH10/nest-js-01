@@ -1,11 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { String } from 'aws-sdk/clients/batch';
 import _ from 'lodash';
 import { ConfigService } from 'src/config/config.service';
 import { ResponseMessage, Response } from 'util/response.util';
 import * as XLSX from 'xlsx';
 import CSVtoJson from 'csvtojson';
-import { isCreditCard } from 'class-validator';
 
 const config = new ConfigService();
 
