@@ -1,9 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import _ from 'lodash';
 import { ConfigService } from 'src/config/config.service';
-import { ResponseMessage } from 'util/response.util';
+import { ResponseMessage, Response } from 'util/response.util';
+import * as XLSX from 'xlsx';
+import CSVtoJson from 'csvtojson';
+import { spawn } from 'child_process';
+
 
 const config = new ConfigService();
+
+const findKey = (term: string, fileName: string): string => {
+    if (fileName.includes(term)) {
+        return fileName;
+    }
+};
+
+const pythonDir = (__dirname + '../matlab/fmri.py');
+const python = pythonDir + '/usr/bin/pythonw';
 
 @Injectable()
 export class NstorageService {
@@ -78,18 +91,19 @@ export class NstorageService {
             Key: labNum + '/' + fileName
         };
 
-        const findKey = (term: string): string => {
-            if (fileName.includes(term)) {
-                return fileName;
-            }
-        };
+        // const findKey = (term: string): string => {
+        //     if (fileName.includes(term)) {
+        //         return fileName;
+        //     }
+        // };
 
         switch (fileName) {
-            case findKey('text/plain'):
-                return await this.readTextFile(params);
-            case findKey('text/csv'):
-            // return await this.readCsvFile(params);
-            case findKey('image'):
+            // case findKey('text/plain'):
+            case findKey('text', fileName):
+                return await this.readTextFileType(params);
+            case findKey('application/', fileName):
+                return await this.readApplicationFileType(params);
+            case findKey('image', fileName):
             // return await this.readImageFile(params);
             default:
                 // this.readDefaultFile(params);
@@ -97,26 +111,81 @@ export class NstorageService {
         }
     }
 
-    async readTextFile(params: AWS.S3.PutObjectRequest): Promise<any> {
+    async readTextFileType(params: AWS.S3.PutObjectRequest): Promise<any> {
+        switch (params.Key) {
+            case findKey('plain', params.Key):
+                return new Promise(async (resolve, reject) => {
+                    await (await config.getS3Params()).getObject(params, (err, data: any) => {
+                        if (err) {
+                            reject(new ResponseMessage().error(400, err).build());
+                        } else {
+                            const body: string = Buffer.from(data.Body).toString('utf8');
+                            // resolve(new ResponseMessage().success().body(body).build());
+                            resolve(this.uploadConvertJson(body));
+                        }
+                    });
+                }).then((result: any) => {
+                    return new ResponseMessage()
+                        .success()
+                        .body(result)
+                        .build();
+                }).catch((err: any) => {
+                    return new ResponseMessage()
+                        .error(400, err)
+                        .build();
+                });
+
+            case findKey('csv', params.Key):
+                return await this.getCsvtoJson(params);
+            // const buffer = await this.getCSVFromBufferPromise(params);
+            // return buffer;
+        }
+    }
+
+    getCsvtoJson = async (params: AWS.S3.PutObjectRequest): Promise<any> => {
+        const csvFile = (await config.getS3Params()).getObject(params).createReadStream();
         return new Promise(async (resolve, reject) => {
-            await (await config.getS3Params()).getObject(params, (err, data: any) => {
-                if (err) {
-                    reject(new ResponseMessage().error(400, err).build());
-                } else {
-                    const body: string = Buffer.from(data.Body).toString('utf8');
-                    resolve(this.uploadConvertJson(body));
-                }
-            });
+            if (csvFile == null) {
+                reject('데이터가 비어있습니다.');
+            } else {
+                CSVtoJson()
+                    .fromStream(csvFile)
+                    .then((json: any[]) => {
+                        resolve(json);
+                    })
+            }
         }).then((result: any) => {
             return new ResponseMessage()
                 .success()
                 .body(result)
                 .build();
-        }).catch((err: any) => {
+        }).catch((error) => {
             return new ResponseMessage()
-                .error(400, err)
+                .error(400, error)
                 .build();
-        });
+        })
+    }
+
+    // https://stackoverflow.com/questions/58065640/how-to-parse-csvs-from-s3-bucket-to-use-in-a-javascript-aws-lambda-function
+    async getCSVFromBufferPromise(params: AWS.S3.PutObjectRequest) {
+        return new Promise(async (resolve, reject) => {
+            const csvFile = (await config.getS3Params()).getObject(params).createReadStream();
+            // const json = await CSVtoJson().fromStream(csvFile);
+            CSVtoJson().fromStream(csvFile)
+                .then((json) => {
+                    resolve(json);
+                });
+
+        }).then((result: any) => {
+            return new ResponseMessage()
+                .success()
+                .body(result)
+                .build();
+        }).catch((error) => {
+            return new ResponseMessage()
+                .error(400, error)
+                .build();
+        })
     }
 
     uploadConvertJson(body: string): _.Dictionary<string>[] {
@@ -141,6 +210,106 @@ export class NstorageService {
         return _.tail(content).map((row: string) => {
             return _.zipObject(header, row.replace(/\s/g, "").split(","));
         });
+    }
+
+    async readApplicationFileType(params: AWS.S3.PutObjectRequest): Promise<Response> {
+        if (params.Key.includes('spreadsheetml.sheet')) {
+            const buffer: Promise<any> = await this.getXLSFileFromBufferPromise(params);
+            const workbook: XLSX.WorkBook = XLSX.read(buffer, { type: 'buffer' });
+            const sheet_name_list: string[] = workbook.SheetNames;
+            // const wsname = workbook.SheetNames[0];
+            // const ws = workbook.Sheets[wsname];
+            // const data = XLSX.utils.sheet_to_json(ws);
+            return new ResponseMessage().success().body(this.convertXlsvtoJson(sheet_name_list, workbook)).build();
+        }
+        else if (params.Key.includes('mat')) {
+            console.log(`fileType:: ${params}`)
+            // const process = spawn('python', ['fmri.py'])
+            return new Promise(async (resolve, reject) => {
+                await (await config.getS3Params()).getObject(params)
+                    .promise()
+                    .then((result: any) => {
+                        const body: string = Buffer.from(result.Body).toString('utf8');
+                        console.log(`bodu? ` + body);
+                        const process = spawn('python', ['src/nstorage/fmri.py', body])
+                        return new Promise((resolve, reject) => {
+                            process.stdout.on('data', data => {
+                                resolve(data.toString());
+                            })
+                            process.stderr.on("data", reject)
+                        })
+                    }).catch((error) => {
+                        reject(error);
+                    })
+            })
+            const result = (await config.getS3Params()).getObject(params);
+            result.promise()
+                .then((result: any) => {
+                    const body: string = Buffer.from(result.Body).toString('utf8');
+                    const process = spawn('python', ['src/nstorage/fmri.py', body])
+                    return new Promise((resolve, reject) => {
+                        process.stdout.on('data', data => {
+                            resolve(data.toString());
+                        })
+                        process.stderr.on("data", reject)
+                    })
+                })
+
+            // const process = spawn('python', ['src/nstorage/fmri.py', result])
+            // return new Promise((resolve, reject) => {
+            //     process.stdout.on('data', data => {
+            //         resolve(data.toString());
+            //     })
+            //     process.stderr.on("data", reject)
+            // })
+        }
+    }
+
+    convertXlsvtoJson(sheet_name_list: string[], workbook: XLSX.WorkBook): any[] {
+        let data: any[] = [];
+        sheet_name_list.forEach((y) => {
+            let worksheet: XLSX.WorkSheet = workbook.Sheets[y];
+            let headers: {} = {};
+            for (let z in worksheet) {
+                if (z[0] === '!') continue;
+                //parse out the column, row, and value
+                let col: string = z.substring(0, 1);
+                let row: number = parseInt(z.substring(1));
+                let value: any = worksheet[z].v;
+
+                //store header names
+                if (row == 1) {
+                    headers[col] = value;
+                    continue;
+                }
+
+                if (!data[row]) data[row] = {};
+                data[row][headers[col]] = value;
+            }
+            //drop those first two rows which are empty
+            data.shift();
+            data.shift();
+        })
+
+        return data;
+
+    }
+
+    async getXLSFileFromBuffer(params, s3buffer): Promise<void> {
+        const buffers = [];
+        const stream = (await config.getS3Params()).getObject(params).createReadStream();
+        stream.on('data', data => buffers.push(data));
+        stream.on('end', () => s3buffer(null, Buffer.concat(buffers)));
+        stream.on('error', error => s3buffer(new ResponseMessage().error(400, error).build()));
+    }
+
+    async getXLSFileFromBufferPromise(params): Promise<any> {
+        return new Promise((resolve, reject) => {
+            this.getXLSFileFromBuffer(params, (error, s3buffer) => {
+                if (error) return reject(error);
+                return resolve(s3buffer);
+            })
+        })
     }
 
 }
