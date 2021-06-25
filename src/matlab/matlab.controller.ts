@@ -1,7 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { MatlabService } from './matlab.service';
 
-@Controller('matlab')
+@Controller()
 export class MatlabController {
     constructor(private readonly matlabService: MatlabService) { }
 

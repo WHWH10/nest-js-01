@@ -17,7 +17,8 @@ import { MatlabModule } from './matlab/matlab.module';
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => configService.getMongoConfig(),
     }),
-    RouterModule.forRoutes(routes), ApiModule, MatlabModule
+    RouterModule.forRoutes(routes),
+    ApiModule, MatlabModule
   ],
   controllers: [AppController],
   providers: [AppService],
